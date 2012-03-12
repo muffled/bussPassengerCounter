@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "busPassengerCounter", "busPassengerCounter\busPassengerCounter.vcproj", "{ED64C12D-86A1-4557-B1E7-EE08149AB092}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ED64C12D-86A1-4557-B1E7-EE08149AB092}.Debug|Win32.ActiveCfg = Debug|Win32
+		{ED64C12D-86A1-4557-B1E7-EE08149AB092}.Debug|Win32.Build.0 = Debug|Win32
+		{ED64C12D-86A1-4557-B1E7-EE08149AB092}.Release|Win32.ActiveCfg = Release|Win32
+		{ED64C12D-86A1-4557-B1E7-EE08149AB092}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,8 @@
+Debug/
+Release/
+busPassengerCounter/Debug/
+busPassengerCounter/Release/
+busPassengerCounter/temp/
+busPassengerCounter/images
+busPassengerCounter/*.txt
+*.ncb
