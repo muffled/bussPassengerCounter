@@ -87,6 +87,23 @@ namespace vanilla
         对于结束的轨迹，将开始帧数相同的轨迹作为一组，输出整个轨迹在不同帧数的位置信息。
         **/
         void finishedTraInfo(std::string filename = ".\\info.txt");
+
+        /** 输出同一批次轨迹的图片。
+         *      
+         *  程序为每一组输出图片创建一个文件夹，用于存放该组图片
+         *  @param  folder 存储输出图片的父文件夹，每一组图片的文件夹在该文件夹之下创建
+         *  @param  videopath 视频文件的系统路径
+         *  @param  off_frame 视频开始段舍弃的帧数
+         */
+        void images_byteam(std::string folder,std::string videopath,ulong off_frame);
+
+        /** 显示出每一幅图片上增加的有效的轨迹数量，并在图片上打印出相应的数字。
+         *  
+         *  @param  folder 存储输出图片的父文件夹，每一组图片的文件夹在该文件夹之下创建
+         *  @param  videopath 视频文件的系统路径
+         *  @param  off_frame 视频开始段舍弃的帧数
+         */
+        void validFeatures_byFrame(std::string folder,std::string videopath,ulong off_frame);
     };
 }
 
