@@ -11,6 +11,7 @@
 #include <list>
 #include <set>
 #include <string>
+#include <iostream>
 #include "stdafx.h"
 
 /**
@@ -29,6 +30,10 @@
 
 namespace vanilla
 {
+
+#define PASSENGER_UP   1
+#define PASSENGER_DOWN 2
+
     struct trajectory
     {
         ulong start;    // 此轨迹的开始帧
@@ -69,6 +74,8 @@ namespace vanilla
         std::list<trajectory> m_trajectorys;  // 存储视频处理中的轨迹
         std::set<cv::Point2f,_pointCompare> m_prevFrameFeatures; // 存储前一帧中的特征点
         std::multiset<trajectory,_trajectoryCompare> m_finishTra;    // 储存已经逸出跟踪窗口并且通过认证的轨迹
+        /** 将已经完成但未通过验证的轨迹添加到链表中 */
+        std::list<trajectory> m_finishTra_list;  
     protected:
         void inline SetPrevFrame(cv::Mat& curFrame) 
         {
@@ -81,7 +88,9 @@ namespace vanilla
         CTrack(cv::Rect tripwireWindow,cv::Rect trackWindow,
                int maxCorners = 1000,double qualityLevel = 0.01,double minDistance = 3);
 
-        void featureTrack(cv::Mat& img,ulong nFrame);  
+        void featureTrack(cv::Mat& img,ulong nFrame);
+
+        void featureTrack(cv::Mat& img,ulong nFrame,int direction);
 
         /**
         对于结束的轨迹，将开始帧数相同的轨迹作为一组，输出整个轨迹在不同帧数的位置信息。
@@ -104,6 +113,17 @@ namespace vanilla
          *  @param  off_frame 视频开始段舍弃的帧数
          */
         void validFeatures_byFrame(std::string folder,std::string videopath,ulong off_frame);
+
+        /** 对已经完成的轨迹进行验证
+         *
+         *  行人上车过程中的所有轨迹的生命时间服从高斯分布。初始通过训练得到行人上车所需要的
+         *  平均时间和标准方差。如果轨迹的生命时间与训练得到的分布范围偏差很大，则认为此轨迹
+         *  为无效轨迹
+         *
+         *  @param mean 训练所得到的轨迹的平均生命时间
+         *  @param std_dev 训练所得到的轨迹的生命时间的方差
+         */
+        void verify(int mean,int std_dev);
     };
 }
 

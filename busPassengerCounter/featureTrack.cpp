@@ -360,3 +360,127 @@ void vanilla::CTrack::validFeatures_byFrame(std::string folder,std::string video
         }
     }
 }
+
+void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame,int direction)
+{
+    cv::Mat curGrayFrame;
+    assert(1 == img.channels() || 3 == img.channels());
+    if (1 == img.channels())  img.copyTo(curGrayFrame);
+    else
+        cvtColor(img,curGrayFrame,CV_BGR2GRAY);
+
+    // 特征点的追踪
+    std::vector<cv::Point2f> tobeTrackedFeatures;   // 存储当前轨迹链表中每一轨迹的最后一个点，用于追踪
+    std::list<vanilla::trajectory>::iterator tra_it;
+
+    if (m_prevFrame.data)
+    {
+        for (tra_it = m_trajectorys.begin();tra_it != m_trajectorys.end();tra_it++)
+            tobeTrackedFeatures.push_back(tra_it->location[tra_it->location.size() - 1]);
+        
+        std::vector<cv::Point2f> trackedLocation;  // 追踪到的位置
+        std::vector<uchar> status;
+        std::vector<float> err;        
+        cv::calcOpticalFlowPyrLK(m_prevFrame,curGrayFrame,tobeTrackedFeatures,trackedLocation,status,err);
+
+        // 特征点更新
+        tra_it = m_trajectorys.begin();
+        for (std::size_t i = 0;i < status.size();++i)
+        {
+            if (!status[i]) 
+            {
+                tra_it = m_trajectorys.erase(tra_it);  // 追踪失败
+                continue;
+            }
+
+            // 删除突然跳跃的点,这些点通常为噪点
+            if (tra_it->location.size() > 1)
+            {
+                std::size_t j = tra_it->location.size();
+                float y_diff = tra_it->location[j-1].y - tra_it->location[j-2].y;
+                float x_diff = tra_it->location[j-1].x - tra_it->location[j-2].x;
+                float pre_dist = x_diff * x_diff + y_diff * y_diff;
+
+                y_diff = trackedLocation[i].y - tobeTrackedFeatures[i].y;
+                x_diff = trackedLocation[i].x - tobeTrackedFeatures[i].x;
+                float cur_dist = x_diff * x_diff + y_diff * y_diff;
+
+                if (cur_dist > 25*pre_dist)
+                {
+                    tra_it = m_trajectorys.erase(tra_it);
+                    continue;
+                }
+            }
+
+            tra_it->location.push_back(trackedLocation[i]);  // 更新轨迹
+
+            if (!m_trackWindow.contains(trackedLocation[i]))
+            {  
+                if (direction == PASSENGER_UP)
+                {
+                    if (m_trackWindow.y > trackedLocation[i].y &&
+                        m_trackWindow.x <= trackedLocation[i].x &&
+                        m_trackWindow.x + m_trackWindow.width >= trackedLocation[i].x)
+                    {
+                        tra_it->end = nFrame;   // 存储下结束的帧数
+                        m_finishTra_list.push_back(*tra_it);
+                    }
+                }
+                if (direction == PASSENGER_DOWN)
+                {
+                    if (m_trackWindow.y < trackedLocation[i].y &&
+                        m_trackWindow.x <= trackedLocation[i].x &&
+                        m_trackWindow.x + m_trackWindow.width >= trackedLocation[i].x)
+                    {
+                        tra_it->end = nFrame;   // 存储下结束的帧数
+                        m_finishTra_list.push_back(*tra_it);
+                    }
+                }
+                tra_it = m_trajectorys.erase(tra_it);
+                continue;
+            }            
+            tra_it++;
+        } 
+    }
+
+    // 特征点的检测
+    std::vector<cv::Point2f> tripwireCorners,detectedFeatures;
+    cv::goodFeaturesToTrack(curGrayFrame(m_tripwireWindow),tripwireCorners,m_maxCorners,
+                            m_qualityLevel,m_minDistance,cv::Mat(),3);
+
+    // offPoint:检测时所传入的图片，为原图中tripwire window所在的部分。
+    //          利用cv::goodFeaturesToTrack 所检测到的特征点坐标是相对于tripwire window而言。
+    //          故在存储坐标时，需要加上offPoint，将检测到的坐标还原到原图中。
+    cv::Point offPoint(m_tripwireWindow.x,m_tripwireWindow.y);
+    for (std::vector<cv::Point2f>::size_type i = 0;i < tripwireCorners.size();i++)
+    {
+        cv::Point2f point(tripwireCorners[i].x + offPoint.x,tripwireCorners[i].y + offPoint.y);
+        detectedFeatures.push_back(point);
+    }
+
+    for (std::size_t i = 0;i < detectedFeatures.size();i++)
+    {
+        trajectory tmp;
+        tmp.start = nFrame;
+        tmp.location.push_back(detectedFeatures[i]);
+        m_trajectorys.push_back(tmp);
+    }  
+
+    SetPrevFrame(curGrayFrame);
+}
+
+void vanilla::CTrack::verify(int mean,int std_dev)
+{
+    std::list<vanilla::trajectory>::iterator it;
+    for (it = m_finishTra_list.begin();it != m_finishTra_list.end();)
+    {
+        ulong lifetime = (it->end - it->start) * 40;
+        if (abs( (double)(lifetime - mean) ) > 2.5 * std_dev)
+            it = m_finishTra_list.erase(it);
+        else
+        {
+            m_finishTra.insert(*it);
+            it++;
+        }
+    }
+}
