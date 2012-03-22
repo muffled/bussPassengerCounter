@@ -15,4 +15,12 @@
 #pragma comment(lib,"opencv2.1/lib/highgui210.lib")
 #endif
 
+#include <stack>
+#include <vector>
+#include <list>
+#include <set>
+#include <string>
+#include <iostream>
+
+
 typedef unsigned long ulong;

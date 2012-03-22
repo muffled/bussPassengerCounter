@@ -29,7 +29,7 @@ std::ofstream& operator << (std::ofstream& os,cv::Point2f& point)
     return os;
 }
 
-void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame)
+void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame,int direction,int /*temp*/)
 {
     cv::Mat curGrayFrame;
     assert(1 == img.channels() || 3 == img.channels());
@@ -52,8 +52,7 @@ void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame)
         std::vector<uchar> status;
         std::vector<float> err;        
         cv::calcOpticalFlowPyrLK(m_prevFrame,curGrayFrame,tobeTrackedFeatures,trackedLocation,status,err); 
-        
-        // 如果追踪失败或者追踪点与前一帧完全一致，则删除掉此条轨迹
+              
         tra_it = m_trajectorys.begin();
         for (size_t i = 0;i < status.size();i++)
         {
@@ -69,10 +68,23 @@ void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame)
                     continue;
                 }
 
-                if ( tobeTrackedFeatures[i].y - trackedLocation[i].y > m_trackWindow.height / 2)
+                // 删除突然跳跃的点,这些点通常为噪点
+                if (tra_it->location.size() > 1)
                 {
-                    tra_it = m_trajectorys.erase(tra_it);
-                    continue;                    
+                    std::size_t j = tra_it->location.size();
+                    float y_diff = tra_it->location[j-1].y - tra_it->location[j-2].y;
+                    float x_diff = tra_it->location[j-1].x - tra_it->location[j-2].x;
+                    float pre_dist = x_diff * x_diff + y_diff * y_diff;
+
+                    y_diff = trackedLocation[i].y - tobeTrackedFeatures[i].y;
+                    x_diff = trackedLocation[i].x - tobeTrackedFeatures[i].x;
+                    float cur_dist = x_diff * x_diff + y_diff * y_diff;
+
+                    if (cur_dist > 25 * pre_dist)
+                    {
+                        tra_it = m_trajectorys.erase(tra_it);
+                        continue;
+                    }
                 }
 
                 tra_it->location.push_back(trackedLocation[i]);  // 更新轨迹
@@ -95,19 +107,26 @@ void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame)
 
                 if (!m_trackWindow.contains(trackedLocation[i]))  // 已经逸出追踪窗口                   
                 {
-                    if (trackedLocation[i].y < m_trackWindow.y)
+                    if (direction == PASSENGER_UP)
                     {
-                        // 保存下已经完成的轨迹，用于后续的聚类。
-                        tra_it->end = nFrame;   // 存储下结束的帧数
-                        m_finishTra.insert(*tra_it);
+                        if (m_trackWindow.y > trackedLocation[i].y &&
+                            m_trackWindow.x <= trackedLocation[i].x &&
+                            m_trackWindow.x + m_trackWindow.width >= trackedLocation[i].x)
+                        {
+                            tra_it->end = nFrame;   // 存储下结束的帧数
+                            m_finishTra.insert(*tra_it);
+                        }
                     }
-//                     if (trackedLocation[i].y > m_trackWindow.y)
-//                     {
-//                         // 保存下已经完成的轨迹，用于后续的聚类。
-//                         tra_it->end = nFrame;   // 存储下结束的帧数
-//                         m_finishTra.insert(*tra_it);
-//                     }
-
+                    if (direction == PASSENGER_DOWN)
+                    {
+                        if (m_trackWindow.y < trackedLocation[i].y &&
+                            m_trackWindow.x <= trackedLocation[i].x &&
+                            m_trackWindow.x + m_trackWindow.width >= trackedLocation[i].x)
+                        {
+                            tra_it->end = nFrame;   // 存储下结束的帧数
+                            m_finishTra.insert(*tra_it);
+                        }
+                    }
                     tra_it = m_trajectorys.erase(tra_it);
                     continue;
                 }
@@ -271,6 +290,75 @@ void _outputTeamImage(cv::VideoCapture& video,std::vector<vanilla::trajectory>& 
     team++;
 }
 
+inline float _pointDistance(cv::Point2f& a,cv::Point2f& b)
+{
+    if (b.y <= a.y)
+        return sqrt( (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) );
+    else
+        return -1.0f * sqrt (( (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) ));
+}
+
+void _outputVelocity_bypoint(std::string folder,std::vector<vanilla::trajectory>& tra_vec)
+{
+    static int team = 1;
+    int index = 1;
+    char szpath[256];
+    memset(szpath,0,sizeof(szpath));
+
+    for (std::size_t i = 0;i < tra_vec.size();i++)
+    {
+        std::vector<cv::Point2f>& features = tra_vec[i].location;
+        sprintf_s(szpath,sizeof(szpath),"%s\\%d_%d.txt",folder.c_str(),team,index++);
+        std::ofstream out_file(szpath);
+
+        for (std::size_t j = 1;j < features.size();j++)
+        {
+            float d = _pointDistance(features[j-1],features[j]);
+            out_file<<d<<" ";
+        }
+        out_file<<std::endl;
+    }
+}
+
+void _outputVelocity_byteam(std::string folder,std::vector<vanilla::trajectory>& tra_vec)
+{
+    char szpath[256];
+    memset(szpath,0,sizeof(szpath));
+    sprintf_s(szpath,sizeof(szpath),"%s\\mean.txt",folder.c_str());
+    std::ofstream outfile(szpath);
+
+    size_t maxLength = 0;
+    for (std::size_t i = 0;i < tra_vec.size();i++)
+    {
+        std::size_t size = tra_vec[i].location.size();
+        if (size > maxLength) maxLength = size;
+    }    
+
+    for (std::size_t i = 1;i < maxLength;i++)
+    {
+        int count = 0;
+        float d_sum = 0.f;
+        for (size_t j = 0;j < tra_vec.size();j++)
+        {
+            std::vector<cv::Point2f>& points = tra_vec[j].location;
+            float d = 0.f;
+            if (points.size() > i)             
+            {
+                d = _pointDistance(points[i-1],points[i]);
+                count++;
+            }
+            d_sum += d;
+        }
+        if (count != 0)
+        {
+            float mean = d_sum / count;
+            outfile<<mean<<" ";
+        }
+    }
+    outfile<<std::endl;
+}
+
+
 void vanilla::CTrack::images_byteam(std::string folder,std::string videopath,ulong off_frame)
 {   
     // 将轨迹按组存储
@@ -303,11 +391,44 @@ void vanilla::CTrack::images_byteam(std::string folder,std::string videopath,ulo
         if (tra_teams[i].size() < 8) continue;
         sprintf_s(szdir,sizeof(szdir),"%s\\%d",folder.c_str(),index++);
         _mkdir(szdir);
-//         _outputTeamImage(video,tra_teams[i],tra_teams[i][0].start,off_frame,std::string(szdir),
-//                          m_tripwireWindow,m_trackWindow);
-        _outputTeamImage(video,tra_teams[i],tra_teams[i][0].start,off_frame,folder,
-            m_tripwireWindow,m_trackWindow);
+        _outputTeamImage(video,tra_teams[i],tra_teams[i][0].start,off_frame,std::string(szdir),
+                         m_tripwireWindow,m_trackWindow);
+//         _outputTeamImage(video,tra_teams[i],tra_teams[i][0].start,off_frame,folder,
+//             m_tripwireWindow,m_trackWindow);
+        _outputVelocity_bypoint(szdir,tra_teams[i]);
+        _outputVelocity_byteam(szdir,tra_teams[i]);
     }
+}
+
+void _outputFrame(std::string folder,std::string videopath,ulong off_frame,ulong start_frame,
+				  cv::vector<cv::Point2f>& points,
+				  cv::Rect& tripwireWindow,cv::Rect& trackWindow)
+{
+	cv::VideoCapture video(videopath);
+	cv::Mat Frame,_Frame;
+	char szpath[256];
+	memset(szpath,0,sizeof(szpath));
+	char szinfo[256];
+	memset(szinfo,0,sizeof(szinfo));
+	static int index = 1;
+
+// 	if (!video.set(CV_CAP_PROP_POS_FRAMES,1.0*off_frame + start_frame))   // 调整到轨迹开始的位置
+// 		std::cout<<"set CV_CAP_PROP_POS_FRAMES failed."<<std::endl;
+	for (ulong i = 0;i < off_frame + start_frame;i++) video >> Frame;
+	video >> Frame;
+	for (std::size_t i = 0;i < points.size();i++)
+		cv::circle(Frame,points[i],1,CV_RGB(0,0,255),-1);
+	cv::rectangle(Frame,tripwireWindow,CV_RGB(0,0,0));
+	cv::rectangle(Frame,trackWindow,CV_RGB(0,0,0));
+
+	sprintf_s(szinfo,sizeof(szinfo),"Frame:%d",start_frame);
+	cv::putText(Frame,szinfo,cv::Point(10,30),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
+	sprintf_s(szinfo,sizeof(szinfo),"features quantity:%d",points.size());
+	cv::putText(Frame,szinfo,cv::Point(10,50),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
+
+	cv::resize(Frame,_Frame,cv::Size(Frame.cols << 1,Frame.rows << 1));
+	sprintf_s(szpath,sizeof(szpath),"%s\\%d.jpg",folder.c_str(),index++);
+	cv::imwrite(szpath,Frame);
 }
 
 void vanilla::CTrack::validFeatures_byFrame(std::string folder,std::string videopath,ulong off_frame)
@@ -316,11 +437,11 @@ void vanilla::CTrack::validFeatures_byFrame(std::string folder,std::string video
 
     cv::VideoCapture video(videopath);
     cv::Mat Frame,_Frame;
-    int index = 1;
-    char szpath[256];
-    memset(szpath,0,sizeof(szpath));
-    char szinfo[256];
-    memset(szinfo,0,sizeof(szinfo));
+//     int index = 1;
+//     char szpath[256];
+//     memset(szpath,0,sizeof(szpath));
+//     char szinfo[256];
+//     memset(szinfo,0,sizeof(szinfo));
 
     std::multiset<trajectory,_trajectoryCompare>::iterator it;
     std::vector<cv::Point2f> points;
@@ -328,7 +449,7 @@ void vanilla::CTrack::validFeatures_byFrame(std::string folder,std::string video
     ulong start_frame = it->start;
     int count = 0;
     int size = m_finishTra.size();
-    
+
     for (;it != m_finishTra.end();it++)
     {
         std::cout<<"left:"<<size - count++<<std::endl;
@@ -336,27 +457,30 @@ void vanilla::CTrack::validFeatures_byFrame(std::string folder,std::string video
         else
         {
             if (points.size() >= 8)
-            {
-                video.set(CV_CAP_PROP_POS_FRAMES,off_frame + start_frame);   // 调整到轨迹开始的位置
-                video >> Frame;
-                for (std::size_t i = 0;i < points.size();i++)
-                    cv::circle(Frame,points[i],1,CV_RGB(0,0,255),-1);
-                cv::rectangle(Frame,m_tripwireWindow,CV_RGB(0,0,0));
-                cv::rectangle(Frame,m_trackWindow,CV_RGB(0,0,0));
-
-                sprintf_s(szinfo,sizeof(szinfo),"Frame:%d",start_frame);
-                cv::putText(Frame,szinfo,cv::Point(10,30),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
-                sprintf_s(szinfo,sizeof(szinfo),"features quantity:%d",points.size());
-                cv::putText(Frame,szinfo,cv::Point(10,50),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
-
-                cv::resize(Frame,_Frame,cv::Size(Frame.cols << 1,Frame.rows << 1));
-                sprintf_s(szpath,sizeof(szpath),"%s\\%d.jpg",folder.c_str(),index++);
-                cv::imwrite(szpath,_Frame);
+            {	
+				_outputFrame(folder,videopath,off_frame,start_frame,points,
+					         m_tripwireWindow,m_trackWindow);
+//                 if (!video.set(CV_CAP_PROP_POS_FRAMES,(double)off_frame + start_frame))   // 调整到轨迹开始的位置
+// 					std::cout<<"set CV_CAP_PROP_POS_FRAMES failed."<<std::endl;
+//                 video >> Frame;
+//                 for (std::size_t i = 0;i < points.size();i++)
+//                     cv::circle(Frame,points[i],1,CV_RGB(0,0,255),-1);
+//                 cv::rectangle(Frame,m_tripwireWindow,CV_RGB(0,0,0));
+//                 cv::rectangle(Frame,m_trackWindow,CV_RGB(0,0,0));
+// 
+//                 sprintf_s(szinfo,sizeof(szinfo),"Frame:%d",start_frame);
+//                 cv::putText(Frame,szinfo,cv::Point(10,30),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
+//                 sprintf_s(szinfo,sizeof(szinfo),"features quantity:%d",points.size());
+//                 cv::putText(Frame,szinfo,cv::Point(10,50),cv::FONT_HERSHEY_PLAIN,1,CV_RGB(255,255,0));
+// 
+//                 cv::resize(Frame,_Frame,cv::Size(Frame.cols << 1,Frame.rows << 1));
+//                 sprintf_s(szpath,sizeof(szpath),"%s\\%d.jpg",folder.c_str(),index++);
+//                 cv::imwrite(szpath,Frame);
             }
 
             points.clear();
             points.push_back(it->location[0]);
-            start_frame = it->start;          
+            start_frame = it->start; 			
         }
     }
 }
@@ -405,7 +529,7 @@ void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame,int direction)
                 x_diff = trackedLocation[i].x - tobeTrackedFeatures[i].x;
                 float cur_dist = x_diff * x_diff + y_diff * y_diff;
 
-                if (cur_dist > 25*pre_dist)
+                if (cur_dist > 25*pre_dist + 1)
                 {
                     tra_it = m_trajectorys.erase(tra_it);
                     continue;
@@ -469,18 +593,47 @@ void vanilla::CTrack::featureTrack(cv::Mat& img,ulong nFrame,int direction)
     SetPrevFrame(curGrayFrame);
 }
 
-void vanilla::CTrack::verify(int mean,int std_dev)
+void vanilla::CTrack::verify(double mean,double std_dev)
 {
+	std::ofstream xfile(".\\x.txt");
+	std::ofstream yfile(".\\y.txt");
+
     std::list<vanilla::trajectory>::iterator it;
     for (it = m_finishTra_list.begin();it != m_finishTra_list.end();)
     {
-        ulong lifetime = (it->end - it->start) * 40;
-        if (abs( (double)(lifetime - mean) ) > 2.5 * std_dev)
-            it = m_finishTra_list.erase(it);
+        ulong lifetime = (it->end - it->start) * 40;		
+        if (abs( (lifetime - mean) ) >= 2.5 * std_dev)        
+		{
+			it = m_finishTra_list.erase(it);
+		}
         else
         {
+			xfile<<it->start<<" ";
+			yfile<<it->end<<" ";
             m_finishTra.insert(*it);
             it++;
         }
     }
+}
+
+void vanilla::CTrack::verify(double mean,double std_dev,int /*temp*/)
+{
+	std::ofstream xfile(".\\xx.txt");
+	std::ofstream yfile(".\\yy.txt");
+
+	std::multiset<trajectory,_trajectoryCompare>::iterator it;
+	for (it = m_finishTra.begin();it != m_finishTra.end();)
+	{
+		ulong lifetime = (it->end - it->start) * 40;		
+		if (abs( (lifetime - mean) ) >= 2.5 * std_dev)        
+		{
+			it = m_finishTra.erase(it);
+		}
+		else
+		{
+			xfile<<it->start<<" ";
+			yfile<<it->end<<" ";
+			it++;
+		}
+	}
 }

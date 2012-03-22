@@ -8,7 +8,8 @@ using namespace vanilla;
 
 int main()
 {
-    VideoCapture video("F:\\multi\\FD_001_06_00.avi");
+    string videopath("G:\\work\\buspassenger\\testvideos\\front\\FD_001_06_00.avi");
+    VideoCapture video(videopath);
     if (!video.isOpened())
     {
         cerr<<"can not open the video."<<endl;
@@ -25,7 +26,7 @@ int main()
     {
         video >> Frame;
         if (!Frame.data) break;
-        track.featureTrack(Frame,nFrame++,PASSENGER_UP);
+        track.featureTrack(Frame,nFrame++,PASSENGER_UP,int(1));
 
         rectangle(Frame,tripwindow,CV_RGB(255,255,0));
         rectangle(Frame,trackwindow,CV_RGB(0,0,255));
@@ -34,7 +35,16 @@ int main()
         if (waitKey(10) == 27) break;      
     }
 
-    track.verify(251,140);
+//     string folder("G:\\work\\buspassenger\\result\\speed\\FD_014_10_00_dback");
+//     ulong off_frame = 10; 
+//     track.images_byteam(folder,videopath,off_frame);
+
+	string folder("G:\\work\\buspassenger\\result\\frames\\FD_001_06_00");
+	ulong off_frame = 10; 
+	//track.validFeatures_byFrame(folder,videopath,off_frame);
+	track.finishedTraInfo();
+// 	double mean = 251,std_dev = 150;
+//     track.verify(mean,std_dev,int(1));
 
     return 1;
 }
