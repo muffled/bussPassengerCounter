@@ -24,6 +24,15 @@ namespace vanilla
         std::vector<cv::Point2f> location;   /**< 此轨迹在每一帧的位置信息 */
     };
 
+	struct features
+	{
+		ulong frame;
+		std::vector<cv::Point2f> tripwire_features;
+		std::vector<cv::Point2f> track_features;
+	};
+
+
+
     /** 
      *  @brief 用于 std::set<cv::Point2f> 的比较类 
      */
@@ -80,6 +89,8 @@ namespace vanilla
         std::multiset<trajectory,_trajectoryCompare> m_finishTra;    
         /** 将已经完成但未通过验证的轨迹添加到链表中 */
         std::list<trajectory> m_finishTra_list;  
+		/** 记录下每一帧中有效的特征点 */
+		std::vector<features> m_features_vec;
     protected:
         void inline SetPrevFrame(cv::Mat& curFrame) 
         {
@@ -130,6 +141,13 @@ namespace vanilla
          */
         void validFeatures_byFrame(std::string folder,std::string videopath,ulong off_frame);
 
+		/**
+		 *	根据视频处理中得到的有效特征点，创建一个黑色的背景图片，在这些图片上输出每一帧的特征点。
+		 *  
+		 *  @param folder 存放结果图片的文件夹
+		 */
+		void showFeatures_byFrame(std::string folder);
+
         /** 对已经完成的轨迹进行验证
          *
          *  行人上车过程中的所有轨迹的生命时间服从高斯分布。初始通过训练得到行人上车所需要的
@@ -142,6 +160,11 @@ namespace vanilla
         void verify(double mean,double std_dev);
 
 		void verify(double mean,double std_dev,int /*temp*/);
+
+		inline std::multiset<trajectory,_trajectoryCompare>& trajectorys()
+		{
+			return m_finishTra;
+		}
     };
 }
 

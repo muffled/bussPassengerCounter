@@ -19,8 +19,10 @@
 #include <vector>
 #include <list>
 #include <set>
+#include <map>
 #include <string>
 #include <iostream>
+#include <fstream>
 
 
 typedef unsigned long ulong;
